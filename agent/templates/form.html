@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>📚 Agente Autónomo de Documentación Técnica</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+  <div class="card shadow-lg rounded-4">
+    <div class="card-body p-4">
+      <h3 class="text-center mb-4">📚 Procesar Documentación y Preguntar</h3>
+
+      <!-- Formulario de Procesamiento -->
+      <form id="processForm" enctype="multipart/form-data" class="mb-4">
+        <div class="mb-3">
+          <label for="doc_url" class="form-label">🌐 URL de documentación (obligatorio)</label>
+          <input type="url" class="form-control" id="doc_url" name="doc_url" required placeholder="https://ejemplo.com/doc">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">⚙️ Procesar Documentación</button>
+      </form>
+      <div id="processResult" class="alert d-none"></div>
+      <div id="statusBox" class="alert alert-info d-none"></div>
+
+      <!-- Formulario de Preguntas -->
+      <form id="chatForm" class="mt-4">
+        <div class="mb-3">
+          <label for="question" class="form-label">❓ Pregunta</label>
+          <input type="text" class="form-control" id="question" name="question" placeholder="Escribe tu pregunta..." required>
+        </div>
+        <button type="submit" class="btn btn-success w-100" id="askBtn" disabled>💬 Enviar Pregunta</button>
+      </form>
+
+      <!-- Respuesta -->
+      <div class="mt-4">
+        <h5>📝 Última Respuesta:</h5>
+        <pre id="answerBox" class="p-3 bg-light border rounded"></pre>
+      </div>
+
+      <!-- Historial -->
+      <div class="mt-4">
+        <h5>📜 Historial de Chat:</h5>
+        <ul id="historyBox" class="list-group"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const processForm = document.getElementById("processForm");
+const chatForm = document.getElementById("chatForm");
+const processResult = document.getElementById("processResult");
+const answerBox = document.getElementById("answerBox");
+const historyBox = document.getElementById("historyBox");
+const statusBox = document.getElementById("statusBox");
+const askBtn = document.getElementById("askBtn");
+let chatId = "demo1";
+
+function setAskEnabled(enabled) {
+  askBtn.disabled = !enabled;
+}
+
+function showStatus(status) {
+  statusBox.classList.remove("d-none");
+  statusBox.textContent = "Estado: " + status;
+  if (status === "processed") {
+    statusBox.className = "alert alert-success";
+    setAskEnabled(true);
+  } else if (status === "failed") {
+    statusBox.className = "alert alert-danger";
+    setAskEnabled(false);
+  } else {
+    statusBox.className = "alert alert-info";
+    setAskEnabled(false);
+  }
+}
+
+async function pollStatus(chatId) {
+  try {
+    const res = await fetch(`/api/v1/processing-status/${chatId}`);
+    const data = await res.json();
+    showStatus(data.status);
+    if (data.status === "processed" || data.status === "failed") {
+      loadHistory();
+    } else {
+      setTimeout(() => pollStatus(chatId), 2000);
+    }
+  } catch {
+    statusBox.textContent = "Error consultando el estado.";
+    setAskEnabled(false);
+  }
+}
+
+processForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  processResult.classList.add("d-none");
+  const formData = new FormData(processForm);
+  chatId = "demo1";
+  formData.append("chatId", chatId);
+
+  try {
+    const response = await fetch("/api/v1/process-documentation", {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json();
+    processResult.classList.remove("d-none");
+    if (data.error) {
+      processResult.className = "alert alert-danger";
+      processResult.textContent = "❌ Error: " + data.error;
+    } else {
+      processResult.className = "alert alert-success";
+      processResult.textContent = "✅ " + data.status;
+      showStatus(data.status);
+      pollStatus(chatId);
+      answerBox.textContent = "";
+      loadHistory();
+    }
+  } catch (err) {
+    processResult.classList.remove("d-none");
+    processResult.className = "alert alert-danger";
+    processResult.textContent = "⚠️ Error en la conexión: " + err;
+  }
+});
+
+chatForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = document.getElementById("question").value;
+  try {
+    const response = await fetch(`/api/v1/chat/${chatId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question })
+    });
+    const data = await response.json();
+    if (data.error) {
+      answerBox.textContent = "❌ Error: " + data.error;
+    } else {
+      answerBox.textContent = "💬 Respuesta:\n\n" + data.answer;
+      document.getElementById("question").value = "";
+      loadHistory();
+    }
+  } catch (err) {
+    answerBox.textContent = "⚠️ Error en la conexión: " + err;
+  }
+});
+
+async function loadHistory() {
+  historyBox.innerHTML = "";
+  try {
+    const response = await fetch(`/api/v1/chat-history/${chatId}`);
+    const data = await response.json();
+    if (Array.isArray(data.history)) {
+      data.history.forEach(item => {
+        const li = document.createElement("li");
+        li.className = "list-group-item";
+        li.innerHTML = `<strong>Q:</strong> ${item.question}<br><strong>A:</strong> ${item.answer}`;
+        historyBox.appendChild(li);
+      });
+    }
+  } catch {}
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  setAskEnabled(false);
+  loadHistory();
+});
+</script>
+</body>
+</html>
